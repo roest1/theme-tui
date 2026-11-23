@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # fmt and clippy are gates: a warning nobody fails on is a warning nobody reads.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Toolchain
+        run: rustup component add rustfmt clippy
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      # The prompt specimen renders the real PS1 through bash, so its test needs
+      # roest1/PS1's ps1.bash. main, not a pin: this should track the prompt.
+      - name: Tests
+        run: |
+          git clone -q --depth 1 https://github.com/roest1/PS1.git "$RUNNER_TEMP/ps1"
+          PS1_BASH="$RUNNER_TEMP/ps1/ps1.bash" cargo test --locked
+
+      - name: No absolute home paths
+        run: |
+          if git grep -nIE '(/home/|/Users/)[A-Za-z][A-Za-z0-9._-]*' -- . | grep -v '/home/linuxbrew'; then
+            echo "Use \$HOME or ~ instead of an absolute home path."; exit 1
+          fi
+
+  # The one required check. A skipped job counts as passing, so this runs always.
+  ci-ok:
+    name: ci ok
+    if: always()
+    needs: [rust]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          [ "${{ needs.rust.result }}" = success ] || { echo "rust: ${{ needs.rust.result }}"; exit 1; }

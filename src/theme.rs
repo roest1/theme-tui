@@ -236,12 +236,17 @@ pub fn selection() -> [u8; 3] {
 mod tests {
     use super::{parse_rendered, render_prompt, xterm256};
 
-    /// The prompt this repo pins: the ps1 submodule, two levels up.
+    /// The real prompt, roest1/PS1's ps1.bash: `PS1_BASH` when set (CI here
+    /// clones PS1 and sets it), else the ps1 submodule two levels up, which is
+    /// where it sits when this is checked out as roest1/dotfiles' tui/font.
+    /// Missing is a failure, not a skip: a skip would hide a PS1 change that
+    /// breaks the specimen.
     fn shipped() -> String {
-        let p = format!("{}/../../ps1/ps1.bash", env!("CARGO_MANIFEST_DIR"));
+        let p = std::env::var("PS1_BASH")
+            .unwrap_or_else(|_| format!("{}/../../ps1/ps1.bash", env!("CARGO_MANIFEST_DIR")));
         assert!(
             std::path::Path::new(&p).is_file(),
-            "{p} is missing -- is the ps1 submodule checked out?"
+            "{p} is missing -- set PS1_BASH to a checkout of roest1/PS1's ps1.bash"
         );
         p
     }

@@ -1,17 +1,19 @@
 [package]
 name = "font"
 description = "Pick the font for each of wezterm's lanes."
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/roest1/theme-tui"
 
 [[bin]]
 name = "font"
 path = "src/main.rs"
 
 [dependencies]
-tui-core.workspace = true
+# The same spec as every other tui-core user, so they resolve to one copy.
+tui-core = { git = "https://github.com/roest1/tui-core", branch = "main" }
 ttf-parser = "0.25"
 fontdue = "0.9"
 png = "0.18"
