@@ -1,6 +1,10 @@
 //! `font show` — what each lane is set to, and whether the terminal is
 //! actually honoring it.
 //!
+//! The colors are listed and nothing more. Whether a pick took is on screen
+//! the moment it is made, in the terminal and in every running nvim, so there
+//! is no second half to prove the way there is for a font.
+//!
 //! The second half is the part that earns this file. The picker rasterizes its
 //! own previews with fontdue and draws them as inline images, so a specimen
 //! looks perfect whether or not wezterm is applying `font_rules` at all — the
@@ -17,6 +21,8 @@
 //! either provable (does the family exist, is the config dir linked) or shown
 //! to the only instrument that can read it.
 
+use crate::colors;
+use crate::conf;
 use crate::fonts;
 use crate::lanes;
 
@@ -70,11 +76,12 @@ fn tildify(path: &str) -> String {
 /// is a picture here — over ssh, in a pipe, on any other terminal it is
 /// unreadable, and a machine that is fine would report red.
 pub fn run() -> i32 {
-    let state = lanes::read();
+    let conf = conf::load();
+    let state = lanes::fonts_of(&conf);
     let mut missing = 0;
 
     println!();
-    println!("  lanes");
+    println!("  fonts");
     for (lane, value) in &state {
         // Whether the machine HAS it, not whether the picker would OFFER it.
         // The picker's list leaves out names like "JetBrainsMono NF" that
@@ -90,6 +97,11 @@ pub fn run() -> i32 {
             "    {lane:<12} {value:<28} {mark:<8} {}",
             lanes::covers(lane)
         );
+    }
+    println!();
+    println!("  colors");
+    for (lane, set_to) in colors::summary(&conf) {
+        println!("    {lane:<12} {set_to}");
     }
     println!();
     println!(

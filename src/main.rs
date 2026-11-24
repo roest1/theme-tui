@@ -4,7 +4,7 @@
 //! console can push the same screens rather than growing its own copy. What is
 //! left here is argument handling and the one process-level concern below.
 
-use font::{lanes, show, FontScreen};
+use font::{conf, show};
 use tui_core::app;
 
 fn main() -> std::io::Result<()> {
@@ -25,14 +25,15 @@ fn main() -> std::io::Result<()> {
             std::process::exit(show::run());
         }
         Some("reset") => {
-            let _ = std::fs::remove_file(lanes::state_path());
-            println!("Fonts reset to the defaults in wezterm/wezterm.lua");
+            conf::reset();
+            println!("Fonts and colors reset to the defaults wezterm.lua and nvim ship");
         }
         Some("-h" | "--help") => {
-            println!("font           pick the font for each of wezterm's lanes");
+            println!("font           pick the font and the colors for each of wezterm's lanes");
             println!("font show      what is set now, and whether wezterm honors it");
-            println!("font reset     back to the defaults wezterm.lua ships");
+            println!("font reset     back to the defaults wezterm.lua and nvim ship");
             println!();
+            println!("Fonts and colors are two tabs: k off the top row reaches them.");
             println!("Browsing Google's fonts is inside the picker: open a lane,");
             println!("then the last row under it. The screen explains its own keys.");
             println!();
@@ -40,7 +41,7 @@ fn main() -> std::io::Result<()> {
             println!("               ctrl-d/u page · enter set · q quit");
         }
         _ => {
-            app::run(Box::new(FontScreen::new()))?;
+            app::run(Box::new(font::screen()))?;
         }
     }
     Ok(())
