@@ -64,11 +64,38 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   stays green over ssh, in a pipe and on a non-wezterm terminal — all places the
   carrier is unreadable and the machine is fine.
 
+- **The picker reads fonts off the UI thread.** `FontScreen::measure` starts three
+  workers and `tick` collects what they send. Reading a family means parsing it for
+  drawing, about three quarters of a second for a machine's worth; done in `rows()`
+  it froze the first `l`. A family not in `cache` yet is still on its way and the
+  pane says "measuring"; `Some(None)` is one that could not be read.
+
+- **Opening or closing a lane answers `Flow::Retarget`.** Every row below it moves,
+  and `Flow::Dirty` keeps the cursor's number: after a close that was a blank row,
+  and after opening a lower lane it was that lane's browse row.
+
+- **The upright cut is chosen by `fonts::upright`, for both screens.** The picker
+  asks it with fontconfig's style names and the browse screen with file names.
+  They had one rule each and had drifted, which is the failure the bullet above
+  about `fonts::measure` records.
+
+- **A download lands in `<slug>.part` and is renamed into place.** `cached_paths`
+  takes any directory holding a .ttf as a whole family, so an interrupted
+  download written straight into it was a complete family for ever after.
+
+- **The catalogue is cached only if it parses, and never fetched on the UI
+  thread.** A captive portal answers with HTML and a 200; caching that was a week
+  of "catalogue unavailable". Fetching it in `BrowseScreen::new` was a
+  sixty-second curl with no key read.
+
+- **`font show` asks `fonts::has`, not the picker's list.** The list leaves out
+  names such as "JetBrainsMono NF" that wezterm resolves, so asking it reported a
+  healthy machine as drifted.
+
 - **A screen's type is public; everything else can stay crate-private.**
   `lib.rs` re-exports `FontScreen`, `Preview` and `specimen` at the crate ROOT
   rather than making callers reach into `picker::`, because that is where they
-  already lived when this was one file and `browse` addresses them as
-  `crate::specimen` / `crate::Preview`. Keeping the paths identical is what
+  already lived when this was one file. Keeping the paths identical is what
   made the lib/bin split a move rather than a rewrite.
 
   Making `new()` public turned on `clippy::new_without_default`, which only

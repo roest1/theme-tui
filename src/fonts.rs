@@ -8,6 +8,7 @@
 //! `cuts_of`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Claude Code's TUI glyphs, in tiers. Counting them flat scores a font that
@@ -64,52 +65,97 @@ pub fn families() -> Vec<String> {
     // matters is its bundled JetBrains Mono, which has no file to measure — so
     // it could be picked but never previewed — and JetBrainsMono Nerd Font is
     // strictly better and already listed.
-    for dir in [config_font_dir()] {
-        let Ok(entries) = std::fs::read_dir(dir) else {
+    for entry in std::fs::read_dir(config_font_dir())
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let path = entry.path();
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf") {
+            continue;
+        }
+        let Ok(data) = std::fs::read(&path) else {
             continue;
         };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf") {
-                continue;
-            }
-            let Ok(data) = std::fs::read(&path) else {
-                continue;
-            };
-            let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
-                continue;
-            };
-            let mut family = None;
-            for name in face.names() {
-                // 16 is the typographic family; 1 is the legacy one, which for a
-                // non-RIBBI cut carries the weight baked into it.
-                if name.name_id == 16 {
-                    family = name.to_string();
-                    break;
-                }
-                if name.name_id == 1 && family.is_none() {
-                    family = name.to_string();
-                }
-            }
-            if let Some(f) = family.filter(|f| keep_family(f)) {
-                set.insert(f);
-            }
+        let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
+            continue;
+        };
+        if let Some(f) = name(&face, FAMILY).filter(|f| keep_family(f)) {
+            set.insert(f);
         }
     }
 
     set.into_iter().collect()
 }
 
-pub fn config_font_dir() -> std::path::PathBuf {
-    let base = std::env::var("XDG_CONFIG_HOME")
+/// A base directory the XDG way: `$VAR` if it is set to something, else
+/// `~/<dotdir>`.
+pub(crate) fn xdg(var: &str, dotdir: &str) -> PathBuf {
+    std::env::var(var)
         .ok()
         .filter(|s| !s.is_empty())
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
-        });
-    base.join("wezterm").join("fonts")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(crate::theme::home()).join(dotdir))
+}
+
+/// wezterm's config directory: its fonts, and the lanes file beside them.
+pub(crate) fn wezterm_dir() -> PathBuf {
+    xdg("XDG_CONFIG_HOME", ".config").join("wezterm")
+}
+
+pub fn config_font_dir() -> PathBuf {
+    wezterm_dir().join("fonts")
+}
+
+/// A name-table entry, as a pair of IDs: the typographic one and the legacy
+/// one it falls back to.
+type NameIds = (u16, u16);
+/// 16 is the typographic family; 1 is the legacy one, which for a non-RIBBI cut
+/// carries the weight baked into it.
+const FAMILY: NameIds = (16, 1);
+const STYLE: NameIds = (17, 2);
+
+/// A font's own name for itself: the typographic record if one can be read,
+/// else the legacy one.
+///
+/// "Can be read" is the catch. A record on the Macintosh platform decodes to
+/// nothing, so the first record with the right ID is not necessarily one with
+/// a name in it -- stopping there lost the family.
+fn name(face: &ttf_parser::Face, (typographic, legacy): NameIds) -> Option<String> {
+    let of = |id: u16| {
+        face.names()
+            .into_iter()
+            .filter(|n| n.name_id == id)
+            .filter_map(|n| n.to_string())
+            .last()
+    };
+    of(typographic).or_else(|| of(legacy))
+}
+
+/// Does this machine have the family -- a file fontconfig or wezterm's own
+/// font directory can produce? Not the same question as whether the picker
+/// offers it: `families` leaves out names wezterm resolves perfectly well.
+pub fn has(family: &str) -> bool {
+    !cuts_of(family).is_empty()
+}
+
+/// The cut to measure and preview a family from: its upright text weight.
+///
+/// One rule, for the names fontconfig gives a family's cuts and for the file
+/// names of one fontconfig has never seen. There were two, and they had
+/// drifted -- the same thing that ended the previewer this crate replaced.
+/// By name first, because whatever sorts first is usually Bold; then anything
+/// upright; then anything at all.
+pub fn upright<T: Clone>(cuts: &[(String, T)]) -> Option<T> {
+    let lower: Vec<String> = cuts.iter().map(|(n, _)| n.to_ascii_lowercase()).collect();
+    let slanted = |n: &str| n.contains("italic") || n.contains("oblique");
+    ["regular", "book", "roman", "normal", "medium"]
+        .iter()
+        .find_map(|want| lower.iter().position(|n| !slanted(n) && n.contains(want)))
+        .or_else(|| lower.iter().position(|n| !slanted(n)))
+        .or(if cuts.is_empty() { None } else { Some(0) })
+        .map(|i| cuts[i].1.clone())
 }
 
 /// A single patched family ships under six or more names — the NF/NFM/NFP
@@ -185,32 +231,23 @@ pub fn cuts_of(family: &str) -> BTreeMap<String, String> {
         // Not in fontconfig — look in wezterm's font_dirs, which is where this
         // repo's generated faces live. Style comes from the file's own name
         // table; there is no fontconfig record to consult.
-        if let Ok(entries) = std::fs::read_dir(config_font_dir()) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let Ok(data) = std::fs::read(&path) else {
-                    continue;
-                };
-                let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
-                    continue;
-                };
-                let mut fam = None;
-                let mut style = None;
-                for name in face.names() {
-                    match name.name_id {
-                        16 => fam = name.to_string().or(fam),
-                        1 if fam.is_none() => fam = name.to_string(),
-                        17 => style = name.to_string().or(style),
-                        2 if style.is_none() => style = name.to_string(),
-                        _ => {}
-                    }
-                }
-                if fam.as_deref() == Some(family) {
-                    out.insert(
-                        style.unwrap_or_else(|| "Regular".into()),
-                        path.to_string_lossy().into_owned(),
-                    );
-                }
+        for entry in std::fs::read_dir(config_font_dir())
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let path = entry.path();
+            let Ok(data) = std::fs::read(&path) else {
+                continue;
+            };
+            let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
+                continue;
+            };
+            if name(&face, FAMILY).as_deref() == Some(family) {
+                out.insert(
+                    name(&face, STYLE).unwrap_or_else(|| "Regular".into()),
+                    path.to_string_lossy().into_owned(),
+                );
             }
         }
     }
@@ -295,11 +332,7 @@ pub fn measure(path: &str) -> Option<(Vec<u8>, Metrics)> {
         line: (face.ascender() as f32 - face.descender() as f32 + face.line_gap() as f32) / upem,
         x_height: face.x_height().map(|v| v as f32 / upem).unwrap_or(0.0),
         weight: face.weight().to_number(),
-        variable: face
-            .variation_axes()
-            .into_iter()
-            .find(|a| a.tag.to_bytes() == *b"wght")
-            .map(|a| (a.min_value, a.max_value)),
+        variable: weight_axis(&face),
         glyphs: face.number_of_glyphs(),
         fixed,
         critical,
@@ -307,12 +340,8 @@ pub fn measure(path: &str) -> Option<(Vec<u8>, Metrics)> {
         incidental,
         missing,
         nerd: has(NERD_PROBE),
-        box_drawing: (0x2500u32..0x2580)
-            .filter(|c| has(char::from_u32(*c).unwrap()))
-            .count(),
-        powerline: (0xE0A0u32..0xE0D5)
-            .filter(|c| has(char::from_u32(*c).unwrap()))
-            .count(),
+        box_drawing: ('\u{2500}'..'\u{2580}').filter(|c| has(*c)).count(),
+        powerline: ('\u{E0A0}'..'\u{E0D5}').filter(|c| has(*c)).count(),
         braille: has('\u{2800}'),
         ligatures,
     };
@@ -328,7 +357,7 @@ pub fn measure(path: &str) -> Option<(Vec<u8>, Metrics)> {
 /// one cut and calls a font famous for its italics italic-less. ttf-parser
 /// exposes the axes but not the instance names, so a variable file is reported
 /// by its axis range instead of a fake cut list — honest about what is known.
-pub fn styles_of_files(paths: &[String]) -> Vec<String> {
+pub fn styles_of_files(paths: &[PathBuf]) -> Vec<String> {
     let mut out: BTreeSet<String> = BTreeSet::new();
     for path in paths {
         let Ok(data) = std::fs::read(path) else {
@@ -337,38 +366,67 @@ pub fn styles_of_files(paths: &[String]) -> Vec<String> {
         let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
             continue;
         };
-        if face.is_variable() {
-            if let Some(a) = face
-                .variation_axes()
-                .into_iter()
-                .find(|a| a.tag.to_bytes() == *b"wght")
-            {
-                let italic = path.to_ascii_lowercase().contains("italic");
-                out.insert(format!(
-                    "variable wght {:.0}–{:.0}{}",
-                    a.min_value,
-                    a.max_value,
-                    if italic { " italic" } else { "" }
-                ));
-                continue;
-            }
+        if let Some((lo, hi)) = weight_axis(&face).filter(|_| face.is_variable()) {
+            let italic = file_name(path).contains("italic");
+            out.insert(format!(
+                "variable wght {lo:.0}–{hi:.0}{}",
+                if italic { " italic" } else { "" }
+            ));
+            continue;
         }
-        let mut style = None;
-        for name in face.names() {
-            match name.name_id {
-                17 => style = name.to_string().or(style),
-                2 if style.is_none() => style = name.to_string(),
-                _ => {}
-            }
-        }
-        out.insert(style.unwrap_or_else(|| "Regular".into()));
+        out.insert(name(&face, STYLE).unwrap_or_else(|| "Regular".into()));
     }
     out.into_iter().collect()
 }
 
+/// The range of a variable font's weight axis.
+fn weight_axis(face: &ttf_parser::Face) -> Option<(f32, f32)> {
+    face.variation_axes()
+        .into_iter()
+        .find(|a| a.tag.to_bytes() == *b"wght")
+        .map(|a| (a.min_value, a.max_value))
+}
+
+/// A path's file name, lowercased -- where a cut says what it is when there
+/// is no fontconfig record to ask.
+pub(crate) fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::keep_family;
+    use super::{keep_family, upright};
+
+    fn cuts(names: &[&str]) -> Vec<(String, usize)> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.to_string(), i))
+            .collect()
+    }
+
+    /// Whatever sorts first is usually Bold, which is how DejaVu Sans Mono
+    /// came to be measured from it: its upright cut is called Book.
+    #[test]
+    fn the_upright_cut_is_found_by_name_before_by_order() {
+        let dejavu = cuts(&["Bold", "Bold Oblique", "Book", "Oblique"]);
+        assert_eq!(upright(&dejavu), Some(2));
+        let fira = cuts(&["Bold", "Light", "Regular", "Regular Italic"]);
+        assert_eq!(upright(&fira), Some(2));
+        // File names, for a family fontconfig has never seen.
+        let files = cuts(&[
+            "firacode-bold.ttf",
+            "firacode-italic.ttf",
+            "firacode-regular.ttf",
+        ]);
+        assert_eq!(upright(&files), Some(2));
+        // No named text weight: anything upright beats anything slanted.
+        assert_eq!(upright(&cuts(&["Italic", "Thin"])), Some(1));
+        assert_eq!(upright(&cuts(&["Italic"])), Some(0));
+        assert_eq!(upright(&cuts(&[])), None);
+    }
 
     /// A single patched family ships under six or more names. These are the
     /// ones that must NOT reach the picker, because weight and italic are

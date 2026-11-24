@@ -33,6 +33,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -44,58 +45,101 @@ pub enum Fetch {
     Failed(String),
 }
 
-type Shared = Arc<Mutex<HashMap<String, Fetch>>>;
+/// What each family came to, and how many answers have landed.
+struct Shared {
+    state: Mutex<HashMap<String, Fetch>>,
+    /// Bumped whenever an answer lands, so the UI can tell "something landed"
+    /// from "still waiting" without diffing the whole map.
+    epoch: AtomicU64,
+}
+
+impl Shared {
+    /// Record an answer AND say that one arrived.
+    ///
+    /// The only way an answer gets in, so the two cannot come apart. They had:
+    /// a family found already on disk was recorded without the count moving,
+    /// and with a warm cache no row in the list ever got its badge.
+    fn settle(&self, slug: &str, fetch: Fetch) {
+        self.state.lock().unwrap().insert(slug.to_string(), fetch);
+        self.epoch.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 pub struct Fetcher {
     tx: Sender<String>,
-    state: Shared,
-    /// Bumped by a worker whenever it finishes, so the UI can tell "something
-    /// landed" from "still waiting" without diffing the whole map.
-    pub epoch: Arc<Mutex<u64>>,
+    shared: Arc<Shared>,
 }
 
 pub fn cache_dir() -> PathBuf {
-    let base = std::env::var("XDG_CACHE_HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache"));
-    base.join("dotfiles-fonts")
+    crate::fonts::xdg("XDG_CACHE_HOME", ".cache").join("dotfiles-fonts")
 }
 
-fn curl(url: &str) -> Option<Vec<u8>> {
-    let out = Command::new("curl")
-        .args(["-fsSL", "--max-time", "60", url])
-        .output()
-        .ok()?;
-    out.status.success().then_some(out.stdout)
+/// Where one family's files are kept until, and unless, they are installed.
+fn family_dir(slug: &str) -> PathBuf {
+    cache_dir().join("browse").join(slug)
 }
 
-/// Bunny's slug maps to a google/fonts directory by deleting hyphens
+/// Bunny's slug as google/fonts spells the directory: without its hyphens
 /// (fira-code -> firacode). Checked against the repo's full tree: 50 of the 51
 /// monospace families resolve, and the one that does not is material-symbols,
 /// an icon set rather than a text font.
-fn google_ttf_urls(slug: &str) -> Option<Vec<String>> {
-    let key: String = slug.chars().filter(|c| *c != '-').collect();
+pub(crate) fn key(slug: &str) -> String {
+    slug.replace('-', "")
+}
+
+/// GET `url`. On failure, the status it was refused with -- or `None` when no
+/// answer came at all.
+///
+/// The status is asked for as DATA (`-w`), not read out of curl's complaint:
+/// a sentence on stderr is a thing that gets reworded.
+fn get(url: &str, seconds: &str, headers: &[&str]) -> Result<Vec<u8>, Option<u16>> {
+    let mut curl = Command::new("curl");
+    curl.args(["-sSL", "--max-time", seconds, "-w", "\n%{http_code}"]);
+    for header in headers {
+        curl.args(["-H", header]);
+    }
+    let out = curl.arg(url).output().map_err(|_| None)?;
+    let (body, code) = out
+        .stdout
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map(|at| out.stdout.split_at(at))
+        .ok_or(None)?;
+    let code: u16 = String::from_utf8_lossy(code).trim().parse().unwrap_or(0);
+    if out.status.success() && (200..300).contains(&code) {
+        Ok(body.to_vec())
+    } else {
+        // curl prints 000 for a request that never got an answer.
+        Err((code != 0).then_some(code))
+    }
+}
+
+/// A family's .ttf files in google/fonts.
+///
+/// A family that is simply not there is a 404 in all three licence
+/// directories. Anything ELSE that went wrong is said, because "no .ttf for
+/// fira-code" is a lie when the truth is that GitHub stopped answering: the
+/// contents API allows an anonymous address sixty requests an hour, and one
+/// skim down the list spends them.
+fn google_ttf_urls(slug: &str) -> Result<Vec<String>, String> {
+    let mut trouble = None;
     for licence in ["ofl", "apache", "ufl"] {
-        let api = format!("https://api.github.com/repos/google/fonts/contents/{licence}/{key}");
-        let body = Command::new("curl")
-            .args([
-                "-fsSL",
-                "--max-time",
-                "30",
-                "-H",
-                "Accept: application/vnd.github+json",
-                "-H",
-                "User-Agent: dotfiles-font-tui",
-                &api,
-            ])
-            .output()
-            .ok()?;
-        if !body.status.success() {
-            continue;
-        }
-        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body.stdout) else {
+        let api = format!(
+            "https://api.github.com/repos/google/fonts/contents/{licence}/{}",
+            key(slug)
+        );
+        let headers = [
+            "Accept: application/vnd.github+json",
+            "User-Agent: dotfiles-font-tui",
+        ];
+        let body = match get(&api, "30", &headers) {
+            Ok(body) => body,
+            Err(status) => {
+                trouble = trouble.or(refusal(status));
+                continue;
+            }
+        };
+        let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body) else {
             continue;
         };
         let Some(items) = json.as_array() else {
@@ -111,10 +155,22 @@ fn google_ttf_urls(slug: &str) -> Option<Vec<String>> {
             .filter_map(|i| i.get("download_url")?.as_str().map(str::to_string))
             .collect();
         if !urls.is_empty() {
-            return Some(urls);
+            return Ok(urls);
         }
     }
-    None
+    Err(trouble.unwrap_or_else(|| format!("no .ttf for {slug}")))
+}
+
+/// What a failed request means, unless it only means "not in this directory".
+fn refusal(status: Option<u16>) -> Option<String> {
+    match status {
+        Some(404) => None,
+        Some(403 | 429) => {
+            Some("github's hourly limit for anonymous requests is used up — try again later".into())
+        }
+        Some(code) => Some(format!("github answered {code}")),
+        None => Some("could not reach github".into()),
+    }
 }
 
 /// What is already on disk for this family, if anything.
@@ -125,8 +181,7 @@ fn google_ttf_urls(slug: &str) -> Option<Vec<String>> {
 /// had already fetched still flashed "fetching…". A read_dir costs microseconds
 /// and removes the flash entirely.
 fn cached_paths(slug: &str) -> Option<Vec<PathBuf>> {
-    let dir = cache_dir().join("browse").join(slug);
-    let found: Vec<PathBuf> = std::fs::read_dir(&dir)
+    let found: Vec<PathBuf> = std::fs::read_dir(family_dir(slug))
         .ok()?
         .flatten()
         .map(|e| e.path())
@@ -136,22 +191,31 @@ fn cached_paths(slug: &str) -> Option<Vec<PathBuf>> {
 }
 
 fn fetch_one(slug: &str) -> Result<Vec<PathBuf>, String> {
-    let dir = cache_dir().join("browse").join(slug);
     if let Some(found) = cached_paths(slug) {
         return Ok(found);
     }
 
-    let urls = google_ttf_urls(slug).ok_or_else(|| format!("no .ttf for {slug}"))?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
+    let urls = google_ttf_urls(slug)?;
+    // Into a directory of its own, moved into place only once EVERY file has
+    // landed. `cached_paths` takes any directory holding a .ttf as a whole
+    // family, so writing straight into it meant a download interrupted after
+    // one cut of four was a complete family for ever after -- measured from
+    // whichever cut that was, and installed as that one file.
+    let dir = family_dir(slug);
+    let part = dir.with_extension("part");
+    let _ = std::fs::remove_dir_all(&part);
+    std::fs::create_dir_all(&part).map_err(|e| e.to_string())?;
     for url in urls {
         let name = url.rsplit('/').next().unwrap_or("font.ttf");
-        let bytes = curl(&url).ok_or_else(|| format!("download failed: {name}"))?;
-        let path = dir.join(name);
-        std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-        out.push(path);
+        let bytes = get(&url, "60", &[]).map_err(|_| format!("download failed: {name}"))?;
+        std::fs::write(part.join(name), bytes).map_err(|e| e.to_string())?;
     }
-    Ok(out)
+    // Another `font` may have finished the same family first, in which case
+    // the rename fails and what it left is the answer.
+    if std::fs::rename(&part, &dir).is_err() {
+        let _ = std::fs::remove_dir_all(&part);
+    }
+    cached_paths(slug).ok_or_else(|| format!("could not keep {slug} in the cache"))
 }
 
 impl Default for Fetcher {
@@ -165,13 +229,14 @@ impl Fetcher {
     /// few enough to stay polite to two public APIs.
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel::<String>();
-        let state: Shared = Arc::new(Mutex::new(HashMap::new()));
-        let epoch = Arc::new(Mutex::new(0u64));
+        let shared = Arc::new(Shared {
+            state: Mutex::new(HashMap::new()),
+            epoch: AtomicU64::new(0),
+        });
         let rx = Arc::new(Mutex::new(rx));
         for _ in 0..3 {
             let rx = Arc::clone(&rx);
-            let state = Arc::clone(&state);
-            let epoch = Arc::clone(&epoch);
+            let shared = Arc::clone(&shared);
             thread::spawn(move || loop {
                 let slug = {
                     let guard = rx.lock().unwrap();
@@ -184,38 +249,58 @@ impl Fetcher {
                     Ok(paths) => Fetch::Ready(paths),
                     Err(e) => Fetch::Failed(e),
                 };
-                state.lock().unwrap().insert(slug, result);
-                *epoch.lock().unwrap() += 1;
+                shared.settle(&slug, result);
             });
         }
-        Self { tx, state, epoch }
+        Self { tx, shared }
+    }
+
+    /// How many answers have landed. A screen that sees it move re-reads.
+    pub fn epoch(&self) -> u64 {
+        self.shared.epoch.load(Ordering::Relaxed)
     }
 
     pub fn get(&self, slug: &str) -> Option<Fetch> {
-        self.state.lock().unwrap().get(slug).cloned()
+        self.shared.state.lock().unwrap().get(slug).cloned()
     }
 
-    /// Enqueue if this is the first time we have been asked. Idempotent, so a
-    /// caller can request the same window on every cursor move without
-    /// re-downloading anything.
+    /// Ask for a family, if this is the first time we have been asked.
+    /// Idempotent, so a caller can request the same window on every cursor
+    /// move without re-downloading anything.
     pub fn request(&self, slug: &str) {
-        let mut guard = self.state.lock().unwrap();
-        if guard.contains_key(slug) {
+        if self.get(slug).is_some() {
             return;
         }
         // Already downloaded in an earlier session: resolve it here rather than
         // queueing, so a warm cache never shows a spinner it does not need.
-        if let Some(found) = cached_paths(slug) {
-            guard.insert(slug.to_string(), Fetch::Ready(found));
-            return;
+        match cached_paths(slug) {
+            Some(found) => self.shared.settle(slug, Fetch::Ready(found)),
+            None => self.enqueue(slug),
         }
-        guard.insert(slug.to_string(), Fetch::Pending);
-        drop(guard);
+    }
+
+    /// Ask again for a family that failed.
+    ///
+    /// `request` leaves a failure alone, deliberately: it is called for every
+    /// row near the cursor on every move, and re-asking each time would spend
+    /// the very limit that caused most failures. This is for the ONE row the
+    /// cursor has come back to.
+    pub fn retry(&self, slug: &str) {
+        if matches!(self.get(slug), Some(Fetch::Failed(_))) {
+            self.enqueue(slug);
+        }
+    }
+
+    fn enqueue(&self, slug: &str) {
+        let mut state = self.shared.state.lock().unwrap();
+        state.insert(slug.to_string(), Fetch::Pending);
+        drop(state);
         let _ = self.tx.send(slug.to_string());
     }
 
     pub fn pending(&self) -> bool {
-        self.state
+        self.shared
+            .state
             .lock()
             .unwrap()
             .values()
@@ -223,48 +308,64 @@ impl Fetcher {
     }
 }
 
-/// The catalogue, cached for a week. Returns (slug, familyName) for every
-/// monospace family, minus material-symbols — categorised monospace, but an
-/// icon set, and the one slug that does not resolve in google/fonts.
-pub fn catalogue() -> Vec<(String, String)> {
-    let path = cache_dir().join("bunny-list.json");
+/// (slug, family name) for each family on offer.
+pub type Catalogue = Vec<(String, String)>;
+
+fn catalogue_path() -> PathBuf {
+    cache_dir().join("bunny-list.json")
+}
+
+/// The catalogue as it is on disk, whatever its age, and whether it is still
+/// FRESH -- under a week old, so there is nothing to go and fetch.
+///
+/// Never touches the network, which is what lets the browse screen open at
+/// once. Offline with a stale catalogue beats offline with nothing, so a stale
+/// one is returned too; `refresh_catalogue` is what replaces it.
+pub fn cached_catalogue() -> (Catalogue, bool) {
+    let path = catalogue_path();
     let fresh = std::fs::metadata(&path)
         .and_then(|m| m.modified())
-        .map(|t| {
-            t.elapsed()
-                .map(|e| e.as_secs() < 7 * 24 * 3600)
-                .unwrap_or(false)
-        })
-        .unwrap_or(false);
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age.as_secs() < 7 * 24 * 3600);
+    let items = std::fs::read(&path)
+        .ok()
+        .and_then(|body| parse_catalogue(&body));
+    // A file that does not parse is not a catalogue, however new it is.
+    let fresh = fresh && items.is_some();
+    (items.unwrap_or_default(), fresh)
+}
 
-    let body = if fresh {
-        std::fs::read(&path).ok()
-    } else {
-        // tmp-then-rename here, unlike wezterm's fonts.conf: nothing watches
-        // this file, so there is no inode to preserve, and a half-downloaded
-        // catalogue replacing a good one would be the worse failure.
-        curl("https://fonts.bunny.net/list")
-            .inspect(|b| {
-                if let Some(dir) = path.parent() {
-                    let _ = std::fs::create_dir_all(dir);
-                }
-                let tmp = path.with_extension("json.tmp");
-                if std::fs::write(&tmp, b).is_ok() {
-                    let _ = std::fs::rename(&tmp, &path);
-                }
-            })
-            // Offline with a stale catalogue beats offline with nothing.
-            .or_else(|| std::fs::read(&path).ok())
-    };
+/// Fetch the catalogue and keep it. BLOCKS on the network for as long as curl
+/// allows, so it is called from a worker and never from a screen.
+///
+/// Kept only if it PARSES. A captive portal answers any URL with a page of
+/// HTML and a 200, and caching that first meant a week of "catalogue
+/// unavailable" on a network that was fine.
+pub fn refresh_catalogue() -> Option<Catalogue> {
+    let body = get("https://fonts.bunny.net/list", "60", &[]).ok()?;
+    let items = parse_catalogue(&body)?;
+    let path = catalogue_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // tmp-then-rename here, unlike wezterm's fonts.conf: nothing watches this
+    // file, so there is no inode to preserve, and a half-written catalogue
+    // replacing a good one would be the worse failure.
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, &body).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+    Some(items)
+}
 
-    let Some(body) = body else { return Vec::new() };
-    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&body) else {
-        return Vec::new();
-    };
-    let Some(map) = json.as_object() else {
-        return Vec::new();
-    };
-    let mut out: Vec<(String, String)> = map
+/// (slug, familyName) for every monospace family, minus material-symbols —
+/// categorised monospace, but an icon set, and the one slug that does not
+/// resolve in google/fonts. `None` for anything that is not the catalogue.
+fn parse_catalogue(body: &[u8]) -> Option<Catalogue> {
+    let json = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    let map = json.as_object()?;
+    let mut out: Catalogue = map
         .iter()
         .filter(|(slug, v)| {
             slug.as_str() != "material-symbols"
@@ -280,7 +381,7 @@ pub fn catalogue() -> Vec<(String, String)> {
         })
         .collect();
     out.sort_by(|a, b| a.1.cmp(&b.1));
-    out
+    Some(out)
 }
 
 /// Nearest-first, so the row you are about to reach is fetched before the row
@@ -300,7 +401,36 @@ pub fn window(len: usize, sel: usize, radius: usize) -> Vec<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::window;
+    use super::{parse_catalogue, refusal, window};
+
+    /// The body a captive portal sends is a 200 full of HTML. It must not be
+    /// taken for a catalogue -- that is what used to get cached for a week.
+    #[test]
+    fn only_a_catalogue_parses_as_one() {
+        assert_eq!(parse_catalogue(b"<html>sign in to the wifi</html>"), None);
+        assert_eq!(parse_catalogue(b"[1, 2]"), None);
+        let body = br#"{
+            "fira-code": {"category": "monospace", "familyName": "Fira Code"},
+            "inter": {"category": "sans-serif", "familyName": "Inter"},
+            "material-symbols": {"category": "monospace", "familyName": "Material Symbols"}
+        }"#;
+        assert_eq!(
+            parse_catalogue(body),
+            Some(vec![("fira-code".to_string(), "Fira Code".to_string())])
+        );
+    }
+
+    /// "Not in this licence directory" is the ordinary answer and says
+    /// nothing. Everything else is why the family could not be fetched, and a
+    /// spent rate limit must not be reported as a font that does not exist.
+    #[test]
+    fn a_refusal_is_told_from_an_absence() {
+        assert_eq!(refusal(Some(404)), None);
+        assert!(refusal(Some(403)).unwrap().contains("hourly limit"));
+        assert!(refusal(Some(429)).unwrap().contains("hourly limit"));
+        assert_eq!(refusal(Some(500)).unwrap(), "github answered 500");
+        assert_eq!(refusal(None).unwrap(), "could not reach github");
+    }
 
     #[test]
     fn prefetch_order_is_nearest_first() {

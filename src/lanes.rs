@@ -32,14 +32,7 @@ pub fn default_for(lane: &str) -> &'static str {
 }
 
 pub fn state_path() -> PathBuf {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
-        });
-    base.join("wezterm").join("fonts.conf")
+    crate::fonts::wezterm_dir().join("fonts.conf")
 }
 
 pub fn read() -> Vec<(String, String)> {

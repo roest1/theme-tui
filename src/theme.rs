@@ -23,15 +23,16 @@ pub fn bg() -> [u8; 3] {
     term_info().bg
 }
 
+/// The foreground and the background, `fg_pct` percent foreground.
+fn mix(fg_pct: u16) -> [u8; 3] {
+    let (f, b) = (fg(), bg());
+    std::array::from_fn(|i| ((f[i] as u16 * fg_pct + b[i] as u16 * (100 - fg_pct)) / 100) as u8)
+}
+
 /// Dim text — a comment, a tool result. Mixed toward the background rather
 /// than hardcoded, so it stays dim on a light theme too.
 pub fn dim() -> [u8; 3] {
-    let (f, b) = (fg(), bg());
-    let mut out = [0u8; 3];
-    for i in 0..3 {
-        out[i] = ((f[i] as u16 * 55 + b[i] as u16 * 45) / 100) as u8;
-    }
-    out
+    mix(55)
 }
 
 /// A 256-colour index, resolved by the terminal where it answered and
@@ -86,11 +87,11 @@ pub fn xterm256(i: u8) -> [u8; 3] {
     }
 }
 
-pub fn idx(i: u8, _fallback: [u8; 3]) -> [u8; 3] {
+pub fn idx(i: u8) -> [u8; 3] {
     term_info().color(i, xterm256(i))
 }
 
-fn home() -> String {
+pub(crate) fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
@@ -106,10 +107,19 @@ fn home() -> String {
 /// and the git slot to a representative branch in the branch colour, so the
 /// specimen shows the width a real prompt has. Anything going wrong -- no
 /// file, no bash, empty output -- falls back to a fixed two-run prompt.
+///
+/// Expanded once and kept. Every pane on the shell lane asked for it, and the
+/// answer is a bash process each time; a prompt edited while `font` is open
+/// shows the next time it is run.
 pub fn prompt_lines() -> Vec<Line> {
-    let path = format!("{}/.bash_prompt", home());
-    let local = format!("{}/.bash_local", home());
-    render_prompt(&path, Some(&local)).unwrap_or_else(fallback_prompt)
+    static LINES: std::sync::OnceLock<Vec<Line>> = std::sync::OnceLock::new();
+    LINES
+        .get_or_init(|| {
+            let path = format!("{}/.bash_prompt", home());
+            let local = format!("{}/.bash_local", home());
+            render_prompt(&path, Some(&local)).unwrap_or_else(fallback_prompt)
+        })
+        .clone()
 }
 
 const EXPAND: &str = r#"
@@ -203,7 +213,7 @@ fn sgr_color(seq: &str) -> Option<[u8; 3]> {
     let p: Vec<u16> = seq.split(';').filter_map(|n| n.parse().ok()).collect();
     let at = p.iter().position(|&n| n == 38)?;
     match p.get(at + 1)? {
-        5 => p.get(at + 2).map(|&n| idx(n as u8, fg())),
+        5 => p.get(at + 2).map(|&n| idx(n as u8)),
         2 => match (p.get(at + 2), p.get(at + 3), p.get(at + 4)) {
             (Some(&r), Some(&g), Some(&b)) => Some([r as u8, g as u8, b as u8]),
             _ => None,
@@ -215,8 +225,8 @@ fn sgr_color(seq: &str) -> Option<[u8; 3]> {
 /// No ~/.bash_prompt — not linked, or a machine that never installed the shell.
 fn fallback_prompt() -> Vec<Line> {
     vec![vec![
-        ("you@host".into(), idx(75, [0x5f, 0xaf, 0xff])),
-        (" ~/dotfiles".into(), idx(110, [0x87, 0xaf, 0xd7])),
+        ("you@host".into(), idx(75)),
+        (" ~/dotfiles".into(), idx(110)),
     ]]
 }
 
@@ -224,12 +234,7 @@ fn fallback_prompt() -> Vec<Line> {
 /// toward the foreground rather than hardcoded, so it reads as "lifted" in
 /// whatever palette the terminal is actually using.
 pub fn selection() -> [u8; 3] {
-    let (f, b) = (fg(), bg());
-    let mut out = [0u8; 3];
-    for i in 0..3 {
-        out[i] = ((f[i] as u16 * 18 + b[i] as u16 * 82) / 100) as u8;
-    }
-    out
+    mix(18)
 }
 
 #[cfg(test)]

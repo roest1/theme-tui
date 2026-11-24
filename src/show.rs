@@ -55,10 +55,9 @@ fn carrier() -> Carrier {
 }
 
 fn tildify(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && path.starts_with(&home) => {
-            format!("~{}", &path[home.len()..])
-        }
+    let home = crate::theme::home();
+    match path.strip_prefix(&home) {
+        Some(rest) if !home.is_empty() => format!("~{rest}"),
         _ => path.to_string(),
     }
 }
@@ -72,13 +71,16 @@ fn tildify(path: &str) -> String {
 /// unreadable, and a machine that is fine would report red.
 pub fn run() -> i32 {
     let state = lanes::read();
-    let installed = fonts::families();
     let mut missing = 0;
 
     println!();
     println!("  lanes");
     for (lane, value) in &state {
-        let mark = if installed.iter().any(|f| f == value) {
+        // Whether the machine HAS it, not whether the picker would OFFER it.
+        // The picker's list leaves out names like "JetBrainsMono NF" that
+        // wezterm resolves perfectly well, so asking it reported a healthy
+        // machine as drifted.
+        let mark = if fonts::has(value) {
             "ok"
         } else {
             missing += 1;
