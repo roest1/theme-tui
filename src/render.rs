@@ -15,11 +15,11 @@ pub struct Canvas {
 
 impl Canvas {
     pub fn new(w: usize, h: usize, bg: [u8; 3]) -> Self {
-        let mut px = Vec::with_capacity(w * h * 3);
-        for _ in 0..w * h {
-            px.extend_from_slice(&bg);
+        Self {
+            w,
+            h,
+            px: bg.repeat(w * h),
         }
-        Self { w, h, px }
     }
 
     pub fn fill(&mut self, x0: usize, y0: usize, w: usize, h: usize, c: [u8; 3]) {
@@ -89,9 +89,10 @@ impl Canvas {
         let mut out = Vec::new();
         {
             let mut enc = png::Encoder::new(&mut out, self.w as u32, self.h as u32);
-            // The sheet is re-sent whenever the selection moves, so its size is
-            // per-keystroke pty bandwidth, not a one-off.
-            enc.set_compression(png::Compression::High);
+            // Encoded whenever the selection moves, so the time is paid per
+            // keystroke. `High` took three to four times as long as this for
+            // a file within a tenth of a percent of the same size.
+            enc.set_compression(png::Compression::Balanced);
             enc.set_color(png::ColorType::Rgb);
             enc.set_depth(png::BitDepth::Eight);
             let mut w = enc.write_header().ok()?;
@@ -101,8 +102,15 @@ impl Canvas {
     }
 }
 
+/// Without the substitution tables, which are a third of the time it takes to
+/// load a font and are never consulted: everything here rasterises one `char`
+/// at a time, and substitution is about runs of them.
 pub fn load(data: &[u8]) -> Option<Font> {
-    Font::from_bytes(data, FontSettings::default()).ok()
+    let settings = FontSettings {
+        load_substitutions: false,
+        ..FontSettings::default()
+    };
+    Font::from_bytes(data, settings).ok()
 }
 
 /// How different two glyphs render, as the share of inked pixels that differ.

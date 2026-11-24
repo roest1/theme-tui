@@ -1,6 +1,6 @@
 //! The `font` binary — a thin entry point.
 //!
-//! Everything of substance is in the library beside this, so the `make it`
+//! Everything of substance is in the library beside this, so the `dots`
 //! console can push the same screens rather than growing its own copy. What is
 //! left here is argument handling and the one process-level concern below.
 
@@ -9,7 +9,7 @@ use tui_core::app;
 
 fn main() -> std::io::Result<()> {
     // Rust ignores SIGPIPE and turns the resulting write error into a PANIC, so
-    // `font inspect x.ttf | head` printed a backtrace instead of stopping. Every
+    // `font show | head` printed a backtrace instead of stopping. Every
     // other command-line tool on the machine dies quietly there; restoring the
     // default handler is what makes this one behave the same.
     #[cfg(unix)]
@@ -28,9 +28,7 @@ fn main() -> std::io::Result<()> {
             let _ = std::fs::remove_file(lanes::state_path());
             println!("Fonts reset to the defaults in wezterm/wezterm.lua");
         }
-        // Undocumented, for the CI check that the Rust list matches the bash
-        // one it replaces. Not in --help: it is a test hook, not a feature.
-        Some("-h") | Some("--help") => {
+        Some("-h" | "--help") => {
             println!("font           pick the font for each of wezterm's lanes");
             println!("font show      what is set now, and whether wezterm honors it");
             println!("font reset     back to the defaults wezterm.lua ships");
