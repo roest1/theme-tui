@@ -66,7 +66,7 @@ pub struct FontScreen {
     families: Vec<String>,
     /// Set on the way into the browse screen, which can install a family:
     /// the list is read again on the way back, so what was just fetched for a
-    /// lane can be given to it without restarting `font`.
+    /// lane can be given to it without restarting `theme`.
     reread: bool,
     state: Vec<(String, String)>,
     open: Option<usize>,

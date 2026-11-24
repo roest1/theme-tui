@@ -1,15 +1,15 @@
-//! The `font` binary — a thin entry point.
+//! The `theme` binary — a thin entry point.
 //!
 //! Everything of substance is in the library beside this, so the `dots`
 //! console can push the same screens rather than growing its own copy. What is
 //! left here is argument handling and the one process-level concern below.
 
-use font::{conf, show};
+use theme::{conf, show};
 use tui_core::app;
 
 fn main() -> std::io::Result<()> {
     // Rust ignores SIGPIPE and turns the resulting write error into a PANIC, so
-    // `font show | head` printed a backtrace instead of stopping. Every
+    // `theme show | head` printed a backtrace instead of stopping. Every
     // other command-line tool on the machine dies quietly there; restoring the
     // default handler is what makes this one behave the same.
     #[cfg(unix)]
@@ -29,9 +29,9 @@ fn main() -> std::io::Result<()> {
             println!("Fonts and colors reset to the defaults wezterm.lua and nvim ship");
         }
         Some("-h" | "--help") => {
-            println!("font           pick the font and the colors for each of wezterm's lanes");
-            println!("font show      what is set now, and whether wezterm honors it");
-            println!("font reset     back to the defaults wezterm.lua and nvim ship");
+            println!("theme          pick the font and the colors for each of wezterm's lanes");
+            println!("theme show     what is set now, and whether wezterm honors it");
+            println!("theme reset    back to the defaults wezterm.lua and nvim ship");
             println!();
             println!("Fonts and colors are two tabs: k off the top row reaches them.");
             println!("Browsing Google's fonts is inside the picker: open a lane,");
@@ -41,7 +41,7 @@ fn main() -> std::io::Result<()> {
             println!("               ctrl-d/u page · enter set · q quit");
         }
         _ => {
-            app::run(Box::new(font::screen()))?;
+            app::run(Box::new(theme::screen()))?;
         }
     }
     Ok(())
