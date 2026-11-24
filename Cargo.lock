@@ -480,7 +480,7 @@ dependencies = [
 [[package]]
 name = "tui-core"
 version = "0.1.0"
-source = "git+https://github.com/roest1/tui-core?branch=main#32133866cb30caffb0f12c002669df3bd24d6013"
+source = "git+https://github.com/roest1/tui-core?branch=main#e311c99bdac312a74867d1463ef9c84ad8217a9c"
 dependencies = [
  "base64",
  "crossterm",
