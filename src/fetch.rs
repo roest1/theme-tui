@@ -349,7 +349,7 @@ pub fn refresh_catalogue() -> Option<Catalogue> {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    // tmp-then-rename here, unlike wezterm's fonts.conf: nothing watches this
+    // tmp-then-rename here, unlike theme.conf (see `conf::update`): nothing watches this
     // file, so there is no inode to preserve, and a half-written catalogue
     // replacing a good one would be the worse failure.
     let tmp = path.with_extension("json.tmp");

@@ -99,7 +99,7 @@ pub(crate) fn xdg(var: &str, dotdir: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(crate::theme::home()).join(dotdir))
 }
 
-/// wezterm's config directory: its fonts, and the lanes file beside them.
+/// wezterm's config directory: its fonts and its themes.
 pub(crate) fn wezterm_dir() -> PathBuf {
     xdg("XDG_CONFIG_HOME", ".config").join("wezterm")
 }

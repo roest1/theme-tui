@@ -1,6 +1,6 @@
 [package]
 name = "font"
-description = "Pick the font for each of wezterm's lanes."
+description = "Pick the font and the colors for each of wezterm's lanes."
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"

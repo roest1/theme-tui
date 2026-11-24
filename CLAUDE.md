@@ -1,7 +1,7 @@
 # CLAUDE.md — theme-tui
 
-`font` today: pick the font for each of wezterm's lanes. It becomes the `theme` TUI
-(roest1/dotfiles#112): colors, icons and fonts per lane, from one place. Built on
+`font`: pick the font and the colors for each of wezterm's lanes, from one place
+(roest1/dotfiles#112). Icons are the part still to come. Built on
 [roest1/tui-core](https://github.com/roest1/tui-core) and pinned in
 [roest1/dotfiles](https://github.com/roest1/dotfiles) as a submodule at `tui/font`, where
 `dots` pushes `FontScreen` onto its own stack, so this crate's lib is a contract, not just a
@@ -10,13 +10,16 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
 
 ## Layout
 
-- `src/` — two screens, and a LIB plus a thin bin. `lib` (the module index
-  and the crate-root re-exports), `picker` (the lane tree — the root screen),
-  `fonts` (discovery + measurement), `render` (rasterising, the contact sheet,
-  glyph-distinctness), `lanes` (the machine-local `fonts.conf`), `fetch` (the
-  prefetching cache behind the browse screen), `browse` (the Google-fonts
-  screen), `show` (`font show` — the lane report and the carrier), `main`
-  (argument handling and nothing else).
+- `src/` — three screens, and a LIB plus a thin bin. `lib` (the module index,
+  the crate-root re-exports, and `screen()`: the two tabs), `picker` (the font
+  lanes), `colors` (the color lanes), `conf` (the machine-local `theme.conf`,
+  the one file every pick goes in), `lanes` (the lanes and their defaults),
+  `schemes` (what there is to pick a color from: wezterm's theme files and
+  nvim's colorschemes, `schemes.lua` being what nvim is asked with), `fonts`
+  (discovery + measurement), `render` (rasterising, the contact sheet,
+  glyph-distinctness), `fetch` (the prefetching cache behind the browse
+  screen), `browse` (the Google-fonts screen), `show` (`font show` — the lane
+  report and the carrier), `main` (argument handling and nothing else).
 
 ## Things not to undo
 
@@ -92,6 +95,64 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   names such as "JetBrainsMono NF" that wezterm resolves, so asking it reported a
   healthy machine as drifted.
 
+- **One file, `~/.config/dotfiles/theme.conf`, keyed by lane and then by what
+  is set.** `shell.font`, `shell.colors`, `nvim.editor.colors`. The fonts had a
+  file of their own (`~/.config/wezterm/fonts.conf`, bare lane names) and nvim's
+  colors had this one to themselves (`nvim.ui = scheme`); `nvim.ui` meant a font
+  in one and a colorscheme in the other, which is why every key now says its
+  attribute. `conf::merged` folds both old spellings in, and the first write
+  puts everything in the new one and removes `fonts.conf`: left behind, wezterm
+  reads it underneath and `font reset` would fall back to it, not to the
+  defaults.
+
+- **A write is read, change, write: `conf::update`.** Two screens write the
+  file and each holds only its own picks, so neither may write "the file as I
+  know it". It is also what keeps a key this program does not know: a reader can
+  gain a key before the picker learns to set it, and a pick must not delete it.
+  `a_key_nobody_here_knows_is_written_back` holds that.
+
+- **`conf::parse` takes exactly the lines the Lua readers take.** Their pattern
+  is in its doc comment. A line this accepted and they skipped would be a pick
+  that is written, shown as set, and never applied.
+
+- **Nothing here knows what a theme looks like.** The shell lane's palettes are
+  the files in `~/.config/wezterm/themes`, which is what wezterm.lua reads the
+  picked one out of. nvim's colorschemes are asked of nvim: `schemes.lua` runs
+  in a headless nvim with the user's config and prints each scheme's highlight
+  colors. A list in this crate would be a second copy of both. Same principle as
+  `fonts::measure`, and as the colors absorbed from the terminal below.
+
+  The script loads a scheme through the config's own loader when it publishes
+  one (dotfiles' `external.theme.load`), so the preview goes through the code
+  that will draw the lane. That is how rose-pine's background shows up in it at
+  all: its option is set by that loader, not by `:colorscheme`.
+
+  It goes in through an environment variable and `loadstring`, so there is no
+  temp file and nothing to quote. nvim gets `-i NONE -n`: it is there to answer
+  a question, not to write shada. It is asked on a thread; a tenth of a second
+  is still a frozen first frame.
+
+- **The colors screen reads the file the way the readers do.** `colors::now` is
+  the same rules as wezterm.lua and nvim's `theme.lua`: only `false` is not
+  transparent, an opacity outside 0.3 to 1 is opaque, an editor key left out
+  follows the ui lane. The screen says what will happen, not what was typed.
+
+- **A theme wezterm would refuse is not offered.** `Palette::parse` is whole or
+  nothing, and `palettes()` skips a name that is not letters, digits, `_` and
+  `-`, both as wezterm.lua does. Otherwise the list holds picks that do nothing.
+
+- **One Dark is set opaque, and that is a taste kept here.** dotfiles tried it
+  transparent and rejected it; the readers do not enforce that, on purpose.
+  `lanes::opaque_only` is the whole of it: picking it writes
+  `transparent = false`, and its background row will not switch back.
+
+- **A preview line is cut to the pane by `paint`, to the cell.** Left to the
+  pane's own truncation a colored block loses its right edge a line at a time.
+
+- **Fonts and colors are tabs (`screen()`), not one tree.** They are siblings:
+  the same lanes asked a different question. `dots` pushes the same host, so a
+  third thing to set is a tab added in `lib.rs` and nowhere else.
+
 - **A screen's type is public; everything else can stay crate-private.**
   `lib.rs` re-exports `FontScreen`, `Preview` and `specimen` at the crate ROOT
   rather than making callers reach into `picker::`, because that is where they
@@ -105,7 +166,8 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
 
 ## The command surface is three commands
 
-`font`, `font show`, `font reset`. Everything else lives inside the TUI, which
+`font`, `font show`, `font reset`, and that did not grow when colors arrived:
+they are a tab. Everything else lives inside the TUI, which
 states its own keys in the footer — including browsing, which is the last row
 under an opened lane rather than a subcommand or a keybinding. A key you have
 to be told about is a key nobody finds, and a subcommand is worse: it needs a
@@ -124,6 +186,10 @@ Colours come from the terminal, not from `wezterm/wezterm.lua`: `OSC 11`, `OSC
 up with nothing here aware that a theme exists. Parsing the Lua would have been
 a second implementation of somebody else's format, wrong the first time that
 file is rearranged.
+
+What was absorbed is the terminal as it was when `font` started. A palette
+picked on the colors tab repaints the terminal at once, and the font specimens
+keep the colors they were drawn with until the next start.
 
 Indices 16-255 are **computed** locally (`theme::xterm256`) rather than
 required from the terminal — the 6x6x6 cube and the grey ramp are fixed by
