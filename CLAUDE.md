@@ -1,7 +1,7 @@
 # CLAUDE.md — theme-tui
 
-`theme`: pick the font and the colors for each of wezterm's lanes, from one place
-(roest1/dotfiles#112). Icons are the part still to come. Built on
+`theme`: pick the colors and the font for each of wezterm's lanes, and the icon set, from
+one place (roest1/dotfiles#112, #149). Built on
 [roest1/tui-core](https://github.com/roest1/tui-core) and pinned in
 [roest1/dotfiles](https://github.com/roest1/dotfiles) as a submodule at `tui/theme`, where
 `dots` pushes `theme::screen()` onto its own stack, so this crate's lib is a contract, not
@@ -16,8 +16,9 @@ than the rename and is not the crate's root: it is the terminal's own colors and
 ## Layout
 
 - `src/` — three screens, and a LIB plus a thin bin. `lib` (the module index,
-  the crate-root re-exports, and `screen()`: the two tabs), `picker` (the font
-  lanes), `colors` (the color lanes), `conf` (the machine-local `theme.conf`,
+  the crate-root re-exports, and `screen()`: the three tabs), `picker` (the font
+  lanes), `colors` (the color lanes, the Themes tab), `icons` (the icon set,
+  and the reader of Material's table), `conf` (the machine-local `theme.conf`,
   the one file every pick goes in), `lanes` (the lanes and their defaults),
   `schemes` (what there is to pick a color from: wezterm's theme files and
   nvim's colorschemes, `schemes.lua` being what nvim is asked with), `fonts`
@@ -154,9 +155,42 @@ than the rename and is not the crate's root: it is the terminal's own colors and
 - **A preview line is cut to the pane by `paint`, to the cell.** Left to the
   pane's own truncation a colored block loses its right edge a line at a time.
 
-- **Fonts and colors are tabs (`screen()`), not one tree.** They are siblings:
-  the same lanes asked a different question. `dots` pushes the same host, so a
-  third thing to set is a tab added in `lib.rs` and nowhere else.
+- **Themes, Fonts and Icons are tabs (`screen()`), not one tree.** They are
+  siblings: the same terminal asked a different question. `dots` pushes the
+  same host, so another thing to set is a tab added in `lib.rs` and nowhere
+  else.
+
+- **The first tab is called Themes, and is `colors` everywhere else.** Riley's
+  word for the tab, and its place: first, since it is what the command is
+  named for. The module, `ColorScreen` and the `.colors` keys keep the old
+  word, because what the file records per lane is that lane's colors. Do not
+  rename the keys to match the tab: two readers in dotfiles parse them.
+
+- **The icons preview is text, and that is the point.** A font specimen is
+  rasterized here because a font can be shown without being set. An icon is a
+  character in a font the TERMINAL has, so the pane prints the real code points
+  and the terminal draws them or fails to. A picture drawn by this process
+  would have looked right on the day wezterm drew every icon as an empty box.
+
+- **Nothing about Material is in this crate.** `icons::Material` reads
+  `material-icons.tsv` from wezterm's fonts directory: which code point is
+  which icon, and which file gets which. A code point holds for one upstream
+  release. The Nerd Font half of the same listing IS a copy (`LISTING`, eza's
+  glyphs for 24 names), kept because it is only a picture and nothing reads it
+  to decide anything.
+
+- **`icons` has one value that means anything, and the default is no key.**
+  `material`, or the key left out. Never `icons = nerd`: a file that says
+  nothing is how every machine starts, and one spelling of that is enough.
+
+- **Material is not set where its font is not.** The pick is refused when
+  `MaterialIconTheme.ttf` or its table is missing from wezterm's fonts
+  directory, because its characters are private-use and draw as boxes. A
+  terminal that is not WezTerm gets a warning in the pane and not a refusal: a
+  server reached from a WezTerm laptop is exactly where the pick is wanted.
+
+- **A font with no letters is not offered for a lane.** `fonts::families` reads
+  every `.ttf` in wezterm's fonts directory, and the icon font lives there.
 
 - **A screen's type is public; everything else can stay crate-private.**
   `lib.rs` re-exports `FontScreen`, `Preview` and `specimen` at the crate ROOT

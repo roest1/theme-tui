@@ -16,6 +16,7 @@ pub mod colors;
 pub mod conf;
 pub mod fetch;
 pub mod fonts;
+pub mod icons;
 pub mod lanes;
 pub mod render;
 pub mod schemes;
@@ -28,22 +29,30 @@ mod picker;
 // this was one file. Keeping the paths identical is what made the split a
 // move rather than a rewrite.
 pub use colors::ColorScreen;
+pub use icons::IconScreen;
 pub use picker::{specimen, FontScreen, Preview};
 
-/// Everything a lane can be given, as tabs: its font, and its colors.
+/// Everything there is to set, as tabs: a lane's colors, a lane's font, and
+/// the icons the whole terminal draws.
 ///
-/// Tabs and not one tree, because the two are siblings: the same lanes, asked
+/// Tabs and not one tree, because they are siblings: the same terminal, asked
 /// a different question. This is what `theme` runs and what `dots` pushes, so
-/// a third thing to set is a tab added here and nowhere else.
+/// another thing to set is a tab added here and nowhere else.
+///
+/// Themes first: it is the tab the command is named for, and the one that
+/// opens. It is called Themes on screen and `colors` everywhere else (the
+/// module, the keys in the file), because what it sets per lane is a color
+/// theme and what the file records is that lane's colors.
 pub fn screen() -> tui_core::Host {
     tui_core::Host::new(
         None,
         vec![
             (
-                "\u{1f524} Fonts".into(),
-                Box::new(FontScreen::new()) as Box<dyn tui_core::Screen>,
+                "\u{1f3a8} Themes".into(),
+                Box::new(ColorScreen::new()) as Box<dyn tui_core::Screen>,
             ),
-            ("\u{1f3a8} Colors".into(), Box::new(ColorScreen::new())),
+            ("\u{1f524} Fonts".into(), Box::new(FontScreen::new())),
+            ("\u{1f4c1} Icons".into(), Box::new(IconScreen::new())),
         ],
     )
 }

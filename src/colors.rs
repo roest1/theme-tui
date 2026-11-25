@@ -1,4 +1,5 @@
-//! The colors screen — the terminal's palette, and nvim's two lanes.
+//! The colors screen, the Themes tab — the terminal's palette, and nvim's two
+//! lanes.
 //!
 //! The same tree as the fonts: a lane, and under it what the lane can be set
 //! to. Three lanes and not four, because `claude` has no colors of its own: a
@@ -518,7 +519,7 @@ fn dim(text: &str) -> String {
 
 impl Screen for ColorScreen {
     fn title(&self) -> String {
-        "  colors — the terminal, and nvim's two lanes".into()
+        "  themes — the terminal, and nvim's two lanes".into()
     }
 
     fn initial_sel(&self) -> usize {

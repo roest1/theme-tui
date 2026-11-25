@@ -24,6 +24,7 @@
 use crate::colors;
 use crate::conf;
 use crate::fonts;
+use crate::icons;
 use crate::lanes;
 
 /// The three conditions from lib/sgr.sh, and the same reasoning.
@@ -60,7 +61,7 @@ fn carrier() -> Carrier {
     Carrier::Live
 }
 
-fn tildify(path: &str) -> String {
+pub(crate) fn tildify(path: &str) -> String {
     let home = crate::theme::home();
     match path.strip_prefix(&home) {
         Some(rest) if !home.is_empty() => format!("~{rest}"),
@@ -103,6 +104,9 @@ pub fn run() -> i32 {
     for (lane, set_to) in colors::summary(&conf) {
         println!("    {lane:<12} {set_to}");
     }
+    println!();
+    println!("  icons");
+    println!("    {:<12} {}", "files", icons::summary(&conf));
     println!();
     println!(
         "    state: {}",

@@ -81,6 +81,11 @@ pub fn families() -> Vec<String> {
         let Ok(face) = ttf_parser::Face::parse(&data, 0) else {
             continue;
         };
+        // A face with no letters is not one to set a lane in. The icon font
+        // lives in this directory too, and it is every bit a .ttf.
+        if face.glyph_index('A').is_none() {
+            continue;
+        }
         if let Some(f) = name(&face, FAMILY).filter(|f| keep_family(f)) {
             set.insert(f);
         }
