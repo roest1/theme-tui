@@ -31,7 +31,7 @@ pub type Conf = BTreeMap<String, String>;
 
 /// The keys this program sets, in the order the file lists them. Anything else
 /// in the file follows, sorted.
-const KEYS: [&str; 10] = [
+const KEYS: [&str; 11] = [
     "shell.font",
     "shell.colors",
     "shell.opacity",
@@ -42,6 +42,7 @@ const KEYS: [&str; 10] = [
     "nvim.editor.colors",
     "nvim.editor.transparent",
     "claude.font",
+    "icons",
 ];
 
 pub fn path() -> PathBuf {
@@ -233,7 +234,7 @@ mod tests {
     #[test]
     fn a_key_nobody_here_knows_is_written_back() {
         let conf = merged(
-            "icons = material\nclaude.font = Hack\nshell.colors = dracula\nshell.font = Hack\n",
+            "cursor.shape = bar\nclaude.font = Hack\nshell.colors = dracula\nshell.font = Hack\n",
             "",
         );
         let text = render(&conf);
@@ -244,7 +245,7 @@ mod tests {
                 "shell.font = Hack",
                 "shell.colors = dracula",
                 "claude.font = Hack",
-                "icons = material",
+                "cursor.shape = bar",
             ]
         );
         assert_eq!(merged(&text, ""), conf, "and it reads back as written");
