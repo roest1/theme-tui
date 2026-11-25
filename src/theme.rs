@@ -109,7 +109,7 @@ pub(crate) fn home() -> String {
 /// file, no bash, empty output -- falls back to a fixed two-run prompt.
 ///
 /// Expanded once and kept. Every pane on the shell lane asked for it, and the
-/// answer is a bash process each time; a prompt edited while `font` is open
+/// answer is a bash process each time; a prompt edited while `theme` is open
 /// shows the next time it is run.
 pub fn prompt_lines() -> Vec<Line> {
     static LINES: std::sync::OnceLock<Vec<Line>> = std::sync::OnceLock::new();

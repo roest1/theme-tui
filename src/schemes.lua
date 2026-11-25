@@ -1,4 +1,4 @@
--- Run by `font` inside a headless nvim. Prints one line per colorscheme this
+-- Run by `theme` inside a headless nvim. Prints one line per colorscheme this
 -- nvim has that it did not ship with: its name, then the colors of a handful
 -- of highlight groups, tab-separated.
 --

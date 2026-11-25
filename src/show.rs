@@ -1,4 +1,4 @@
-//! `font show` — what each lane is set to, and whether the terminal is
+//! `theme show` — what each lane is set to, and whether the terminal is
 //! actually honoring it.
 //!
 //! The colors are listed and nothing more. Whether a pick took is on screen
@@ -109,7 +109,7 @@ pub fn run() -> i32 {
         tildify(&lanes::state_path().display().to_string())
     );
     if missing > 0 {
-        println!("    a lane names a family this machine does not have — run `font` to repick,");
+        println!("    a lane names a family this machine does not have — run `theme` to repick,");
         println!("    or `make install wezterm` to fetch the defaults.");
     }
 
@@ -131,7 +131,7 @@ pub fn run() -> i32 {
         Carrier::Piped => {
             println!("    · not shown — stdout is not a terminal.");
             println!("      The carrier is an escape sequence; it must never reach a pipe.");
-            println!("      Run `font show` directly to see it.");
+            println!("      Run `theme show` directly to see it.");
         }
         Carrier::NotWezterm(term) => {
             println!("    · not shown — TERM_PROGRAM is {term}, not WezTerm.");

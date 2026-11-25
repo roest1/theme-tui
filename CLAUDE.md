@@ -1,12 +1,17 @@
 # CLAUDE.md — theme-tui
 
-`font`: pick the font and the colors for each of wezterm's lanes, from one place
+`theme`: pick the font and the colors for each of wezterm's lanes, from one place
 (roest1/dotfiles#112). Icons are the part still to come. Built on
 [roest1/tui-core](https://github.com/roest1/tui-core) and pinned in
-[roest1/dotfiles](https://github.com/roest1/dotfiles) as a submodule at `tui/font`, where
-`dots` pushes `FontScreen` onto its own stack, so this crate's lib is a contract, not just a
-binary. Split out of dotfiles on 2026-11-23 with its history. The entries below moved from
-dotfiles' `tui/CLAUDE.md` as they were; trim them here.
+[roest1/dotfiles](https://github.com/roest1/dotfiles) as a submodule at `tui/theme`, where
+`dots` pushes `theme::screen()` onto its own stack, so this crate's lib is a contract, not
+just a binary. Split out of dotfiles on 2026-11-23 with its history. The entries below moved
+from dotfiles' `tui/CLAUDE.md` as they were; trim them here.
+
+The command and the crate were `font` until 2026-11-24, when it had been setting colors for
+a day. Three things kept the old word because they are still about fonts: `FontScreen`, the
+`fonts` module, and the download cache at `~/.cache/dotfiles-fonts`. `src/theme.rs` is older
+than the rename and is not the crate's root: it is the terminal's own colors and the prompt.
 
 ## Layout
 
@@ -18,7 +23,7 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   nvim's colorschemes, `schemes.lua` being what nvim is asked with), `fonts`
   (discovery + measurement), `render` (rasterising, the contact sheet,
   glyph-distinctness), `fetch` (the prefetching cache behind the browse
-  screen), `browse` (the Google-fonts screen), `show` (`font show` — the lane
+  screen), `browse` (the Google-fonts screen), `show` (`theme show` — the lane
   report and the carrier), `main` (argument handling and nothing else).
 
 ## Things not to undo
@@ -44,7 +49,7 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   exists — the command surface is the three below, and browsing is a row inside
   the picker. The principle outlived both spellings.)
 
-- **`font show`'s carrier is the only part of this crate that does not
+- **`theme show`'s carrier is the only part of this crate that does not
   rasterise.** Everything else here draws type by decoding the file with fontdue
   and shipping a PNG, which is why the picker looked perfect on a machine where
   the lanes were dead: a rasterised specimen is a picture of what this process
@@ -61,7 +66,7 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   truncated line cannot leave the terminal in SGR 6 and silently reskin
   everything printed after it.
 
-- **`font show` exits non-zero ONLY for a lane naming a family this machine does
+- **`theme show` exits non-zero ONLY for a lane naming a family this machine does
   not have**, because that is the only thing here a program can judge.
   `status_fonts` counts that as drift and counts nothing else, so `make status`
   stays green over ssh, in a pipe and on a non-wezterm terminal — all places the
@@ -91,7 +96,7 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   of "catalogue unavailable". Fetching it in `BrowseScreen::new` was a
   sixty-second curl with no key read.
 
-- **`font show` asks `fonts::has`, not the picker's list.** The list leaves out
+- **`theme show` asks `fonts::has`, not the picker's list.** The list leaves out
   names such as "JetBrainsMono NF" that wezterm resolves, so asking it reported a
   healthy machine as drifted.
 
@@ -102,7 +107,7 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
   in one and a colorscheme in the other, which is why every key now says its
   attribute. `conf::merged` folds both old spellings in, and the first write
   puts everything in the new one and removes `fonts.conf`: left behind, wezterm
-  reads it underneath and `font reset` would fall back to it, not to the
+  reads it underneath and `theme reset` would fall back to it, not to the
   defaults.
 
 - **A write is read, change, write: `conf::update`.** Two screens write the
@@ -166,7 +171,7 @@ dotfiles' `tui/CLAUDE.md` as they were; trim them here.
 
 ## The command surface is three commands
 
-`font`, `font show`, `font reset`, and that did not grow when colors arrived:
+`theme`, `theme show`, `theme reset`, and that did not grow when colors arrived:
 they are a tab. Everything else lives inside the TUI, which
 states its own keys in the footer — including browsing, which is the last row
 under an opened lane rather than a subcommand or a keybinding. A key you have
@@ -187,7 +192,7 @@ up with nothing here aware that a theme exists. Parsing the Lua would have been
 a second implementation of somebody else's format, wrong the first time that
 file is rearranged.
 
-What was absorbed is the terminal as it was when `font` started. A palette
+What was absorbed is the terminal as it was when `theme` started. A palette
 picked on the colors tab repaints the terminal at once, and the font specimens
 keep the colors they were drawn with until the next start.
 

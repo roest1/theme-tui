@@ -210,7 +210,7 @@ fn fetch_one(slug: &str) -> Result<Vec<PathBuf>, String> {
         let bytes = get(&url, "60", &[]).map_err(|_| format!("download failed: {name}"))?;
         std::fs::write(part.join(name), bytes).map_err(|e| e.to_string())?;
     }
-    // Another `font` may have finished the same family first, in which case
+    // Another `theme` may have finished the same family first, in which case
     // the rename fails and what it left is the answer.
     if std::fs::rename(&part, &dir).is_err() {
         let _ = std::fs::remove_dir_all(&part);

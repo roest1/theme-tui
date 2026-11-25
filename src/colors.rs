@@ -112,7 +112,7 @@ impl Now {
     }
 }
 
-/// Each color lane and what it is set to, for `font show`.
+/// Each color lane and what it is set to, for `theme show`.
 pub fn summary(conf: &Conf) -> Vec<(&'static str, String)> {
     let now = now(conf);
     (0..COLOR_LANES.len())

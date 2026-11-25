@@ -1,13 +1,13 @@
 # theme-tui
 
-`font`: pick the font and the colors for each of WezTerm's lanes (the shell, nvim's chrome, the file you're editing, Claude Code panes), with a preview of each. Icons are still to come ([roest1/dotfiles#112](https://github.com/roest1/dotfiles/issues/112)).
+`theme`: pick the font and the colors for each of WezTerm's lanes (the shell, nvim's chrome, the file you're editing, Claude Code panes), with a preview of each. Icons are still to come ([roest1/dotfiles#112](https://github.com/roest1/dotfiles/issues/112)).
 
-- `font` opens the picker. Fonts and colors are two tabs. `font show` prints what each lane is set to, and `font reset` goes back to the defaults.
+- `theme` opens the picker. Fonts and colors are two tabs. `theme show` prints what each lane is set to, and `theme reset` goes back to the defaults.
 - Picks are machine-local: they go in `~/.config/dotfiles/theme.conf`, which the [roest1/dotfiles](https://github.com/roest1/dotfiles) WezTerm and nvim configs read. A pick applies at once, in the terminal and in every running nvim. Nothing is installed into the system font path.
 - The last row under a font lane browses Google Fonts. A family is fetched to `~/.cache/dotfiles-fonts` and previewed before you choose it.
 - The colors on offer are not listed here. The terminal's themes are the files in `~/.config/wezterm/themes`, and nvim's colorschemes are whatever nvim says it has installed.
 
-Built on [roest1/tui-core](https://github.com/roest1/tui-core). dotfiles pins it as a submodule at `tui/font` and installs it with `make install tui`. Its `dots` console opens the same picker as a row, so this crate is a library as well as a binary.
+Built on [roest1/tui-core](https://github.com/roest1/tui-core). dotfiles pins it as a submodule at `tui/theme` and installs it with `make install tui`. Its `dots` console opens the same picker as a row, so this crate is a library as well as a binary.
 
 ## Install
 

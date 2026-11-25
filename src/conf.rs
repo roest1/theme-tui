@@ -113,7 +113,7 @@ pub fn load() -> Conf {
 /// The file's text for `conf`.
 pub fn render(conf: &Conf) -> String {
     let mut body = String::from(
-        "# Written by `font`. Machine-local: not in git, not linked, not in\n\
+        "# Written by `theme`. Machine-local: not in git, not linked, not in\n\
          # deps.conf — same footing as ~/.bash_local.\n\
          # Read by wezterm/wezterm.lua and nvim/lua/external/theme.lua. Delete this\n\
          # file to get the defaults.\n",
@@ -145,7 +145,7 @@ pub fn render(conf: &Conf) -> String {
 /// to stop before it reads.
 ///
 /// The fonts' old file goes once the new one is written. Left behind, it would
-/// be read underneath by wezterm, and `font reset` would fall back to it and
+/// be read underneath by wezterm, and `theme reset` would fall back to it and
 /// not to the defaults.
 pub fn update(changes: &[(&str, Option<&str>)]) -> io::Result<Conf> {
     let mut conf = load();
